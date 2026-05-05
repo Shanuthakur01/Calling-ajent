@@ -1,0 +1,1230 @@
+Found 16 matching user messages
+=== line 476 ===
+Now please understand, Claude — I want to build a calling agent so that students can make calls and practice HR interviews without any problems.
+
+here is my ajent prompt-->SECTION 1: DEMEANOUR & IDENTITY  
+Personality:
+
+You are Saanvi, a warm, perceptive, and grounded recruitment specialist conducting HR interview practice for an L1 / L2 Production Support Engineer role. You create a safe, welcoming space for candidates to speak authentically. Your interview style is calm, human, and intuitive. You balance professionalism with empathy, ensuring candidates feel heard while you gather information required for assessment. You focus on understanding a candidate’s experience, responsibilities, and approach to real-world production scenarios. You speak naturally and professionally, never sounding robotic.
+
+You must speak in the same language as the candidate. If the candidate mixes English and Hindi, respond naturally in Hinglish.
+
+Context:
+
+You are conducting voice-based HR and production support interview practice sessions.  
+The interview includes compulsory HR questions followed by 5 random HR & Behavioral questions selected from the HR & Behavioral Questions section, and 2 questions from the Technical & Support Scenario Questions section.  
+You must transition smoothly between HR and technical questions while keeping the tone consistent and reassuring.
+
+Environment:
+
+The interview takes place in a calm, professional setting. Candidates may feel nervous. You should be patient, supportive, and attentive, allowing pauses when candidates need time to think.
+
+Tone:
+
+Your tone is calm, clear, and reassuring.  
+Use soft pauses (“…”) where appropriate.  
+Keep responses concise—generally one or two sentences.  
+Acknowledge hesitation gently without pressure.  
+Maintain professionalism at all times.
+
+🔹 CALL TURN-TAKING & INTERRUPTION RULES (CRITICAL)
+
+IMPORTANT CALL RULES:
+
+Never interrupt yourself while speaking. Always complete your sentence.
+
+If the candidate says short acknowledgements such as “haan”, “hmm”, “ok”, “yes”, “right”, “theek”, treat them as listening signals and continue speaking.
+
+Respond only when the candidate clearly finishes a complete sentence or question.
+
+If the candidate speaks for less than 1 second, ignore the input and continue.
+
+Treat short pauses as thinking time, not as a turn to respond.
+
+Ignore filler words unless the candidate follows up with a clear question or statement.
+
+Voice pacing rules:
+
+Keep your spoken responses under 2 seconds.
+
+Ask the next question only after the candidate finishes speaking.
+
+Do not interrupt the candidate at any point.
+
+Wait for at least 1.6 seconds of silence before responding.
+
+Goal:
+
+Your goal is to simulate a realistic HR screening and production support interview, helping candidates practice answering questions clearly and confidently. You ask structured questions to understand role fit, experience, and problem-solving approach without giving feedback or evaluation.
+
+Guardrails:
+
+Do not mention that you are an AI unless explicitly asked.
+
+Do not guarantee job outcomes or selection.
+
+Do not provide legal, medical, financial, or career advice.
+
+Do not provide feedback or judge answers.
+
+Never answer interview questions on the candidate’s behalf.
+
+Never repeat a question unless the candidate explicitly asks you to repeat it.
+
+Treat unclear answers as cues to ask clarification questions.
+
+Keep the conversation strictly within interview context.
+
+INTERVIEW STRUCTURE & FLOW (STRICT)
+
+Ask only ONE question at a time.
+
+Wait for the candidate to finish before proceeding.
+
+Ask up to 2 follow-up questions only if clarification is needed.
+
+Do not rephrase the same question multiple times.
+
+Gently redirect the candidate if they go off-topic.
+
+Maintain a steady, calm pace throughout the interview.
+
+SECTION 2: INTERVIEW OPENING
+
+Opening:  
+“Thank you for applying for the L1 / L2 Production Support Engineer role. I wanted to have a quick chat to understand your background and experience better. Would this be a good time to talk?”
+
+If the candidate is busy or asks to reschedule, politely ask for a suitable date and time and end the call.  
+If the candidate is not interested or says they did not apply, acknowledge politely and end the call.  
+If the candidate confirms availability, proceed to ask any 3 random questions from the HR & Behavioral Questions section.  
+Ensure these 3 questions are selected carefully to avoid repetition for each candidate.
+
+SECTION 3: COMPULSORY HR QUESTIONS (ALWAYS ASK FIRST)
+
+Ask any 2 random questions from the compulsory HR questions list below.  
+Make sure these 2 questions are also not repeated for candidates.
+
+Question 1:  
+“Please briefly introduce yourself.”
+
+Question 2:  
+“What is your current role and day-to-day responsibilities?”
+
+Question 3:  
+“What is your notice period or earliest availability?”
+
+Question 4:  
+“What is your current salary and your expected salary?”
+
+Question 6:  
+Are you available for an in-person interview ro
+
+=== line 1251 ===
+## PHASE 4 — HARD REQUIREMENTS
+
+Implement all of these. Do not skip any.
+
+1. **Streaming pipeline.** LLM streams tokens → sentence chunker yields complete sentences → TTS streams audio chunks → telephony websocket sends μ-law frames. Use `asyncio.Queue` between stages so they run concurrently, not serially.
+
+2. **Barge-in handler.** On `is_final=True` from STT during agent speech (or interim transcript with confidence > threshold):
+   - `current_llm_task.cancel()`
+   - `current_tts_task.cancel()`
+   - Send `{"event": "clear", "streamSid": ...}` to Twilio websocket
+   - Flush internal audio queue
+
+3. **Provider fallback.** Wrap each provider call in `fallback.py` with: primary provider → on `TimeoutError`/`HTTPError`/rate-limit → secondary provider → log incident. Configurable per provider.
+
+4. **Connection reuse.** Singleton clients for OpenAI, Deepgram, ElevenLabs/Cartesia at app startup. HTTP/2 keep-alive via `httpx.AsyncClient` with connection pooling.
+
+5. **Latency metrics.** Log per-turn: `stt_ttft_ms`, `stt_final_ms`, `llm_ttft_ms`, `tts_ttft_ms`, `e2e_first_audio_ms`. Print summary at call end. Use `time.perf_counter()`.
+
+6. **Crash isolation.** Each call is its own task. One call crashing must not affect others. Top-level `except Exception` per call with structured error log including `call_id`.
+
+7. **Graceful shutdown.** SIGTERM handler that drains active calls before exiting (with timeout).
+
+8. **Config-driven.** All of these in `.env` or `config.yaml`:
+   - STT/LLM/TTS provider + model + fallback model
+   - System prompt, welcome message
+   - Hangup-after-silence seconds
+   - Sentence-chunk delimiters
+   - Interim transcript barge-in threshold
+
+9. **μ-law 8kHz everywhere.** Request `output_format=ulaw_8000` from TTS provider directly. If provider doesn't support it, use `audioop.lin2ulaw` once, never WAV/MP3 intermediates.
+
+10. **Tests.** At minimum: a unit test for the sentence chunker (feed it token stream, assert correct sentence boundaries), and an integration test that mocks STT/LLM/TTS and verifies barge-in cancels in-flight tasks.
+
+## PHASE 5 — VERIFICATION
+
+After refactor:
+1. Run the test suite: `pytest -xvs`. All tests must pass.
+2. Run `python -m py_compile` on every `.py` file. Zero errors.
+3. Start the server locally and print the startup log. Confirm provider clients initialize once.
+4. Update README.md with: architecture diagram (ASCII), run instructions, env var list, latency targets (e2e < 800ms), and how to swap providers.
+5. Write a `CHANGES.md` summarizing every modification with file:line references and the reasoning.
+
+## RULES
+
+- Do NOT use placeholder code, TODOs, or `pass` stubs. Every function must be fully implemented.
+- Do NOT introduce new heavy dependencies without justification. Prefer stdlib + existing deps.
+- Do NOT change the public API of the telephony webhook unless it's broken.
+- If something in the existing code is intentionally non-streaming for a reason you can't determine, ASK before changing it.
+- Preserve existing prompts, voice IDs, and business logic verbatim unless they're the cause of a bug.
+- After every phase, summarize what you did and what's next before continuing.
+
+Begin with Phase 1.
+
+=== line 1385 ===
+The agent crashed during a real Plivo call. Symptoms:
+- 10-12 second delay before first audio
+- Only first sentence played, then silence, then call dropped
+- ngrok logs show: POST /incoming-call → WS /media-stream upgraded → 12 seconds later GET /audio/{id} fetched
+- The /audio/{audio_id} route exists and is being used during live calls
+
+Diagnosis (likely): TTS is generating full audio files and serving via HTTP, instead of streaming μ-law frames through the Plivo websocket. This violates Phase 4 requirement #1 (streaming pipeline) and #9 (μ-law 8kHz everywhere).
+
+Do this:
+
+## STEP 1 — AUDIT
+1. Read main.py, agent/pipeline.py, agent/call_session.py, tts/elevenlabs_tts.py end to end.
+2. Trace what happens from `/incoming-call` POST to first audio frame leaving the server.
+3. Write FIX_AUDIT.md answering:
+   - Where does TTS audio go after generation? (file? memory? websocket?)
+   - Is the `/audio/{audio_id}` route used during live calls or only for playback after?
+   - Is TTS streaming chunks, or generating full audio then sending?
+   - Where is the Plivo websocket send happening? Show the exact line that calls ws.send_text or ws.send_bytes.
+   - What format is being sent — is it `{"event": "media", "media": {"payload": "<base64>"}}` per Plivo's protocol?
+4. STOP and show me the audit before fixing anything.
+
+## STEP 2 — FIX
+After my approval, refactor so:
+
+1. **Plivo media protocol compliance.** All audio to Plivo flows as JSON frames over the existing /media-stream websocket:
+```python
+   await ws.send_text(json.dumps({
+       "event": "playAudio",
+       "media": {
+           "contentType": "audio/x-mulaw",
+           "sampleRate": 8000,
+           "payload": base64.b64encode(ulaw_chunk).decode()
+       }
+   }))
+```
+   (Confirm exact event name from Plivo docs — it may be "playAudio" or "media" depending on Plivo version.)
+
+2. **Streaming TTS direct to websocket.** ElevenLabs streaming endpoint with `output_format=ulaw_8000` and `optimize_streaming_latency=3`. Read response chunks of ~320 bytes (20ms of μ-law audio). Send each chunk to the Plivo websocket immediately. Do NOT buffer the full audio.
+
+3. **Sentence-level pipelining.** As LLM streams tokens, split on sentence boundaries, dispatch each complete sentence to TTS as it forms. Do NOT wait for full LLM output.
+
+4. **Remove or repurpose `/audio/{audio_id}`.** If it's only used for live calls, delete it. If it's used for post-call playback in the dashboard, keep it but ensure it's NOT in the live-call path.
+
+5. **Barge-in.** When STT returns final transcript during agent speech: cancel current LLM task, cancel current TTS task, send Plivo's clear/flush event to drop queued audio.
+
+6. **No event loop blocking.** Audit for `time.sleep`, sync `requests.get/post`, sync file I/O in the call path. Replace with `asyncio.sleep`, `httpx.AsyncClient`, `aiofiles`. Run `grep -rn "time.sleep\|requests\." agent/ tts/ main.py` and report.
+
+7. **Add latency logging at every stage** of the live call path:
+   - `t_incoming_call`
+   - `t_ws_connected`
+   - `t_first_stt_partial`
+   - `t_first_llm_token`
+   - `t_first_tts_chunk`
+   - `t_first_audio_to_plivo`
+   Log all deltas at call end.
+
+## STEP 3 — TEST
+1. Add an integration test that mocks the Plivo websocket and asserts the FIRST media frame arrives within 1500ms of the websocket connecting.
+2. Run pytest, ensure all pass.
+3. Update CHANGES.md and README.md.
+
+Begin Step 1. Do not skip the audit.
+
+=== line 1427 ===
+APPROVED for Step 2 with these corrections:
+
+## DO
+
+1. **Restart procedure first.** Before any code changes:
+   - Kill the running uvicorn process
+   - Delete all __pycache__ directories: `Get-ChildItem -Path . -Filter __pycache__ -Recurse -Force | Remove-Item -Recurse -Force`
+   - Confirm Phase 4 code is on disk by showing the first 30 lines of agent/call_session.py
+   - THEN make changes
+
+2. **Bug A — verify before fixing.** Fetch the current Plivo bidirectional streaming spec from Plivo's official docs (use web_fetch on https://www.plivo.com/docs/voice/api/audiostream-websocket-protocol or the current equivalent). Show me the exact JSON shape Plivo specifies for the playAudio event. THEN fix sampleRate to match the spec exactly. Do not guess. If the spec says integer, leave it integer. If it says string, change it to string.
+
+3. **Bug B — apply.** Add `optimize_streaming_latency=3` to ElevenLabs streaming TTS params. Also add `output_format=ulaw_8000` if not already there (eliminates any μ-law conversion in our code).
+
+4. **Add latency instrumentation** at these exact points in the live path:
+   - t_incoming_call (first line of /incoming-call handler)
+   - t_ws_connected (first line of /media-stream handler after accept)
+   - t_first_stt_partial (first interim transcript received)
+   - t_first_llm_token (first token delta from LLM stream)
+   - t_first_tts_byte (first byte received from ElevenLabs stream response)
+   - t_first_audio_to_plivo (first ws.send_json with playAudio)
+   - t_user_speech_end (final transcript boundary)
+   
+   Store as time.perf_counter() in the CallSession. Log all deltas at call end with call_id correlation. Use structured logging.
+
+5. **Remove dead code.** The /audio/{audio_id} endpoint and audio_cache.py are dead in the live call path. Remove them entirely UNLESS they're used by the dashboard for post-call recording playback. If they are, isolate them to a /recordings/{id} route and document it.
+
+6. **Integration test** — add tests/test_first_audio_latency.py that:
+   - Mocks Plivo websocket
+   - Mocks ElevenLabs to return μ-law bytes after a 50ms delay
+   - Asserts the first ws.send_json call with event="playAudio" arrives within 1500ms of websocket accept
+   - Asserts the JSON shape matches Plivo's spec exactly (verified in step 2 above)
+
+## DO NOT
+
+- Do NOT change frame size from 160 bytes (20ms). It is correct for μ-law 8kHz.
+- Do NOT pad _PLIVO_BUFFER to compensate for ngrok latency. Production won't use ngrok.
+- Do NOT refactor the asyncio.gather / CancelledError handling in pipeline.py:79 unless you write a failing test that reproduces the bug first. If you can't write a failing test, leave it alone.
+- Do NOT add retries, fallbacks, or "robustness" beyond what's specified. Scope is fix-the-bug, not improve-the-code.
+
+## VERIFICATION
+
+After changes:
+1. Run pytest. All existing tests + the new latency test must pass.
+2. Run `python -c "import main; print('imports clean')"` to confirm no import errors.
+3. Show me the diff of every changed file.
+4. Update CHANGES.md.
+
+Begin Step 2.
+
+=== line 1736 ===
+Two tuning fixes for the live voice agent.
+
+## Fix 1: Stop interrupting users mid-introduction
+
+Symptom: Agent jumps in during candidate's introduction when there's a natural pause.
+
+Root cause: Turn-end detection triggers on STT is_final, which fires on every short silence.
+
+Solution:
+
+A) If using Deepgram STT: update LiveOptions in stt/deepgram_stt.py:
+   - endpointing=1200 (was probably 300)
+   - utterance_end_ms="1500"
+   - vad_events=True
+   - Subscribe to UtteranceEnd event, NOT just is_final
+   Trigger turn-end on UtteranceEnd, not on every is_final.
+
+B) Add to agent/call_session.py:
+   - Buffer all is_final transcripts into self._utterance_buffer
+   - Reset/restart an asyncio.Task endpoint timer (1200ms) on each is_final
+   - Only call _handle_user_turn when timer expires
+   - Ignore utterances under 2 words (config: MIN_UTTERANCE_WORDS)
+   - Make endpoint_ms and min_words configurable via .env: ENDPOINT_MS=1200, MIN_UTTERANCE_WORDS=2
+
+## Fix 2: Repeat question when candidate says "sorry" / "didn't understand"
+
+Solution: Update the system prompt in config.py (or wherever SYSTEM_PROMPT/agent prompt lives). Append:
+
+CONVERSATION RULES:
+- If the candidate says any of: "sorry", "pardon", "could you repeat", "say again", "I didn't catch that", "I didn't understand", "what did you say", "come again", or asks you to repeat — immediately repeat your previous question, rephrased more simply and slowly. Do NOT advance to the next question.
+- If they ask to repeat twice in a row, break the question into smaller parts.
+- Track which questions you've asked; don't repeat them unless asked.
+- Wait for the candidate to finish speaking before responding. Pauses are natural — never interrupt.
+
+## Tests
+
+- Add test in tests/ that feeds two is_final transcripts 800ms apart and asserts only ONE _handle_user_turn call happens (not two).
+- Add test that feeds a 1-word is_final ("um") and asserts NO turn handling triggers.
+- Run pytest. All tests must pass.
+
+Update CHANGES.md. Show diffs.
+
+=== line 1805 ===
+Live call analysis revealed 5 production bugs. Fix each in order.
+
+## Bug 1: Barge-in cascades — same transcript fires N pipelines
+
+Symptom from logs:
+  13:49:38 Barge-in: 'With the tools with the monitoring tools like Gervana and'  (×6 in 1 second)
+  Each Barge-in spawned a new LLM pipeline, hitting Groq rate limits.
+
+Root cause: agent/call_session.py barge-in path fires on every interim transcript, doesn't dedupe, doesn't wait for endpoint silence.
+
+Fix:
+1. In agent/call_session.py, the barge-in path must use the SAME endpoint timer + utterance buffer as the LISTENING path. Right now LISTENING uses _utterance_buffer + _endpoint_timer; barge-in path bypasses both. Unify them.
+2. After barge-in cancels current TTS/LLM, transition to LISTENING state and route the new transcript through the normal endpoint-buffered handler.
+3. Add dedupe: if incoming transcript == last_handled_transcript AND <500ms since last pipeline started, drop it.
+4. Test: feed 6 identical "is_final" transcripts within 200ms. Assert exactly ONE pipeline starts.
+
+## Bug 2: Self-echo — agent transcribes its own audio
+
+Symptom: "The person you are speaking with has put your call on hold..." appeared 5x as STT input. This is system audio / hold music being picked up.
+
+Fix:
+1. Add a self-speech mute window in agent/call_session.py: while agent is speaking (state == SPEAKING), DROP all STT transcripts unless they exceed a confidence-and-volume threshold for genuine barge-in. 
+2. Add a 300ms guard after agent finishes speaking before re-enabling STT input (acoustic tail).
+3. Add a phrase-level filter: a config list of "system phrases" (hold music text, IVR phrases) that get silently dropped. Configurable via .env: STT_DROP_PHRASES=hold,please stay on the line,...
+4. Log dropped transcripts at DEBUG level only.
+
+## Bug 3: Groq rate limit, no fallback activation
+
+Symptom: 429 Too Many Requests, OpenAI SDK retried for 13+ seconds, never failed over to fallback provider.
+
+Fix:
+1. In agent/fallback.py for LLM: catch httpx 429 / openai.RateLimitError specifically. On first 429, immediately fail over to OpenAI fallback. Do NOT use the SDK's built-in retry — disable it via openai.AsyncOpenAI(max_retries=0).
+2. Same for ElevenLabs TTS 429 → Deepgram TTS fallback.
+3. Log every fallback activation with WARNING level: which provider failed, why, what we fell back to.
+4. Add a circuit breaker: after 3 consecutive 429s on a provider, route 100% of next 60s to fallback before retrying primary.
+5. Test: mock primary to return 429, assert fallback is called exactly once, no retry storm.
+
+## Bug 4: Endpoint timer only protects LISTENING state
+
+Symptom: "Pipeline started — 0 ms after STT final" — endpoint buffering bypassed in barge-in path.
+
+Fix: covered by Bug 1 unification. Verify all paths to _handle_user_turn() go through the endpoint timer.
+
+## Bug 5: Old ngrok URL appears in /incoming-call response
+
+Symptom: log line at call end shows "Answer XML [POST]: ... wss://crista-polar-bailee.ngrok-free.dev/media-stream" instead of cloudflare URL.
+
+Fix:
+1. grep -rn "ngrok" . --include="*.py" --include="*.env" --include="*.yaml". Show output.
+2. Find any hardcoded fallback BASE_URL. Remove it.
+3. Confirm BASE_URL is read fresh per-request from settings, not cached at import time.
+4. Add a startup log: "BASE_URL active: {settings.base_url}". If it's ever read again later, log a WARNING if it differs.
+
+## Tests
+- All existing 22 tests still pass
+- Add: test_barge_in_dedupe (6 same transcripts → 1 pipeline)
+- Add: test_self_echo_filter (system phrase dropped)
+- Add: test_rate_limit_fallback (429 → fallback called once, no retry)
+
+Update CHANGES.md. Show diffs of every changed file.
+
+=== line 1984 ===
+The agent's /incoming-call response is returning a stale ngrok URL (wss://crista-polar-bailee.ngrok-free.dev/media-stream) instead of the configured cloudflare URL (BASE_URL in .env = https://cardiovascular-forth-stakeholders-hollow.trycloudflare.com).
+
+Confirmed facts:
+- .env line 22: BASE_URL=https://cardiovascular-forth-stakeholders-hollow.trycloudflare.com
+- Grep for "ngrok|crista-polar" in *.py returned ZERO matches outside docs/comments
+- Grep for "Stream" XML returned no hardcoded URL
+- The bug exists despite no hardcoded value in code
+
+This means BASE_URL is being resolved from somewhere other than .env at runtime. Diagnose and fix.
+
+## STEP 1 — DIAGNOSIS (do not skip)
+
+Run all of these and write findings to URL_BUG_AUDIT.md:
+
+1. Show every file that reads BASE_URL or base_url:
+   `grep -rn "BASE_URL\|base_url" --include="*.py" .`
+
+2. Show how settings is loaded (Pydantic Settings, dotenv, os.environ):
+   Open config.py, paste the BASE_URL field definition and the Settings class.
+
+3. Show the EXACT code that builds the /incoming-call XML response:
+   Open main.py and paste the /incoming-call handler in full.
+
+4. Check OS environment for stale BASE_URL:
+   `python -c "import os; print('OS BASE_URL =', repr(os.environ.get('BASE_URL')))"`
+   If this returns ngrok, the shell has a stale env var that overrides .env.
+
+5. Check what BASE_URL Settings actually loads:
+   `python -c "from config import settings; print('Settings.base_url =', repr(settings.base_url))"`
+
+6. Check if settings is read at import-time vs request-time:
+   In main.py, search for any `BASE_URL = ...` or `base_url = ...` at module scope (outside a function). Module-scope reads happen ONCE at import and won't update if .env changes.
+
+7. Check for multiple .env files:
+   `Get-ChildItem -Path . -Filter ".env*" -Recurse -Force | Where-Object { $_.FullName -notmatch "venv" }`
+
+8. Check Pydantic Settings priority — by default, OS env vars OVERRIDE .env. So if `$env:BASE_URL` is set in the shell to the ngrok URL, .env is ignored.
+
+Write URL_BUG_AUDIT.md with findings from all 8 checks. STOP and show me the audit before fixing anything.
+
+## STEP 2 — FIX (only after I approve audit)
+
+Based on audit findings, apply ONE of these fixes:
+
+A) If OS env var is stale: document in CHANGES.md that the user must run `Remove-Item Env:BASE_URL` before starting uvicorn, OR add to main.py at top:
+```python
+   import os
+   os.environ.pop("BASE_URL", None)  # force .env to win
+   from dotenv import load_dotenv
+   load_dotenv(override=True)
+```
+
+B) If module-scope read in main.py: change to per-request read of `settings.base_url`.
+
+C) If multiple .env files: print which one is being loaded, document the precedence.
+
+D) If Pydantic Settings is configured with `env_file` but env_priority is wrong: set `env_file_encoding="utf-8"` and ensure load_dotenv is called with `override=True` BEFORE Settings is instantiated.
+
+Whichever applies, also:
+
+1. Add a startup log line that prints THREE values for cross-checking:
+```python
+   logger.info(f"BOOT base_url: env={os.environ.get('BASE_URL')!r} settings={settings.base_url!r} dotenv_path={find_dotenv()!r}")
+```
+
+2. Add a /debug/config endpoint (only enabled in non-production) that returns the current settings.base_url so we can verify the running process matches expectations.
+
+3. Add a startup assertion: if settings.base_url contains "ngrok" AND .env doesn't contain "ngrok", raise RuntimeError with the discrepancy explained.
+
+## STEP 3 — VERIFY
+
+1. Restart uvicorn (after killing any existing process on port 8000)
+2. Hit /debug/config and show the response
+3. Hit POST /incoming-call and show the XML response — must contain the cloudflare URL, NOT ngrok
+4. Run pytest, all 27 tests must pass
+5. Update CHANGES.md with the fix and root cause explanation
+
+## RULES
+
+- Do NOT guess. The audit must show actual data from running the diagnostic commands.
+- Do NOT modify .env (it's already correct)
+- Do NOT change the cloudflare URL anywhere
+- If diagnostic step 4 (`os.environ.get('BASE_URL')`) returns ngrok, that IS the root cause. Apply fix A.
+- After every step, summarize and confirm before continuing.
+
+Begin with Step 1.
+
+=== line 2077 ===
+The agent's primary LLM is Groq. Free-tier Groq keeps hitting 429 rate limits during real calls and the existing fallback is too slow to recover. Implement a robust LLM fallback strategy.
+
+## STEP 1 — AUDIT (do not skip)
+
+Read and report on:
+1. agent/fallback.py — current LLM fallback chain, circuit breaker logic
+2. llm/groq_client.py — current Groq client setup, retry config
+3. llm/openai_client.py if exists, or where OpenAI is configured
+4. config.py — LLM model names, timeouts, fallback settings
+5. .env / .env.example — required keys
+
+Write LLM_FALLBACK_AUDIT.md with:
+- Current primary model and exact name (e.g., "llama-3.3-70b-versatile")
+- Current fallback model and exact name
+- Current circuit breaker thresholds (consecutive failures, cooldown duration)
+- What error types trigger fallback (429? 5xx? timeout? all?)
+- Whether the SDK's built-in retries are disabled (max_retries=0)
+
+STOP and show the audit before fixing.
+
+## STEP 2 — FIX
+
+Implement this LLM strategy in agent/fallback.py and llm/* modules:
+
+### Provider chain (configurable in .env):
+
+LLM_PROVIDER_CHAIN=groq,openai
+LLM_PRIMARY_MODEL=llama-3.3-70b-versatile
+LLM_PRIMARY_TIMEOUT_S=4
+LLM_FALLBACK_MODEL=gpt-4o-mini
+LLM_FALLBACK_TIMEOUT_S=8
+LLM_CIRCUIT_FAIL_THRESHOLD=2
+LLM_CIRCUIT_COOLDOWN_S=120
+
+The fallback must use OpenAI's gpt-4o-mini as default. It is the best balance of latency (TTFT ~300-500ms), cost, and reliability for voice agents. Do NOT default to gpt-4o or gpt-4-turbo — they are too slow for voice.
+
+### Trigger conditions (in priority order):
+
+Fall over to next provider IMMEDIATELY (no retry) on:
+- HTTP 429 (rate limit) — most common Groq failure
+- HTTP 5xx (server error)
+- httpx.TimeoutException
+- httpx.ConnectError / ConnectTimeout
+- openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError
+- Any exception during the streaming generator (mid-response failures)
+
+Do NOT trigger fallback on:
+- HTTP 400/401/403 (auth/config errors — these need human fix, not fallback)
+- ValidationError on response
+
+### SDK-level retries:
+
+In every LLM client (Groq AsyncOpenAI client, OpenAI AsyncOpenAI client):
+- Set max_retries=0 explicitly
+- Set timeout via httpx.Timeout(connect=2.0, read=primary_timeout_s, write=2.0, pool=2.0)
+- Pass http_client=httpx.AsyncClient with the singleton from main.py lifespan
+
+### Circuit breaker (per provider):
+
+Class _CircuitBreaker in agent/fallback.py:
+- States: CLOSED (normal), OPEN (skip provider), HALF_OPEN (try one request)
+- Opens after LLM_CIRCUIT_FAIL_THRESHOLD consecutive failures (default 2)
+- Stays OPEN for LLM_CIRCUIT_COOLDOWN_S seconds (default 120)
+- After cooldown, transitions to HALF_OPEN — next call tests primary
+- Success in HALF_OPEN → back to CLOSED
+- Failure in HALF_OPEN → back to OPEN with full cooldown
+
+Log every state transition at WARNING level with provider name and reason.
+
+### Streaming preservation:
+
+The fallback must preserve token streaming. Don't break the contract that the pipeline expects an async generator yielding tokens. If primary fails MID-STREAM, the fallback must restart from the beginning with the same messages and stream from there. Add a flag `stream_already_started: bool` to detect this case and emit a system message in conversation history if needed.
+
+### Logging:
+
+Every LLM call must log:
+- Which provider was attempted
+- Final outcome (success / fallback_used / all_failed)
+- Total time spent
+- Token count (if available)
+
+At call end, the existing CALL END summary must include: `groq_used=N openai_used=M fallbacks_triggered=K`.
+
+### Edge case — both providers fail:
+
+If both Groq AND OpenAI fail on a single turn:
+- Log ERROR with full context (last 3 messages, both error chains)
+- Return a graceful pre-recorded fallback response: "I'm having a technical issue, can you repeat that?"
+- The TTS for that fallback should still stream normally
+- Do NOT crash the call session
+
+## STEP 3 — TESTS
+
+Add tests/test_llm_fallback_v2.py with these scenarios. All must pass.
+
+1. Primary returns 429 → fallback called once, no retry storm, total time < primary_timeout + 100ms
+2. Primary times out at primary_timeout_s → fallback called, succeeds
+3. Primary fails twice in a row → circuit opens, third call goes directly to fallback without trying primary
+4. Circuit cooldown elapses → next call tries primary in HALF_OPEN state
+5. Primary fails MID-STREAM (after 3 tokens) → fallback restarts and streams full response
+6. Both providers fail → graceful "technical issue" message returned, call session not crashed
+7. Primary 401 (bad API key) → does NOT trigger fallback, raises immediately for human attention
+8. Streaming contract preserved — fallback yields tokens as async generator, not a single blob
+
+All 27 existing tests + 8 new tests = 35 must pass.
+
+## STEP 4 — VERIFY
+
+1. Show diff of every changed file
+2. Run pytest -xvs, paste full output
+3. Update CHANGES.md with rationale: why gpt-4o-mini, why 2-failure threshold, why 120s cooldown
+4. Update README.md env var section with all 
+
+=== line 2212 ===
+Live call passed (avg e2e=1059ms, groq held up). Three remaining issues to fix.
+
+## Fix 1: First-turn cold start (Groq took 1198ms on first call vs 400-500ms after)
+
+Add a warmup ping at app startup. In main.py lifespan, after singleton clients are initialized, fire-and-forget a small Groq completion:
+
+```python
+async def _warmup_llm():
+    try:
+        await asyncio.wait_for(
+            llm_client.complete_once(
+                model=settings.llm_primary_model,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+            ),
+            timeout=5.0,
+        )
+        logger.info("LLM warmup complete")
+    except Exception as e:
+        logger.warning(f"LLM warmup failed (non-fatal): {e}")
+
+# In lifespan startup:
+asyncio.create_task(_warmup_llm())
+```
+
+If `complete_once` doesn't exist, use whatever non-streaming method LLMClient exposes. Don't block startup — fire and forget.
+
+Goal: subsequent first call should be ~400ms, not 1200ms.
+
+## Fix 2: Short-utterance whitelist for meaningful 1-word phrases
+
+Current: `MIN_UTTERANCE_WORDS=2` filter dropped "Sorry?" so the LLM never saw it. The repeat-question rule never fired.
+
+In agent/call_session.py `_handle_user_turn` (or wherever the min-words check lives), add a whitelist:
+
+```python
+# Module-level constant
+SHORT_UTTERANCE_WHITELIST = {
+    "sorry", "pardon", "repeat", "again", "what", "huh",
+    "yes", "no", "okay", "ok", "sure", "right", "correct",
+    "wait", "hold", "stop"
+}
+
+def _is_meaningful_short_utterance(text: str) -> bool:
+    cleaned = text.lower().strip().rstrip("?.,!").strip()
+    return cleaned in SHORT_UTTERANCE_WHITELIST
+```
+
+In _handle_user_turn, change:
+```python
+if word_count < self.min_utterance_words:
+    log("Utterance too short, skipping")
+    return
+```
+
+To:
+```python
+if word_count < self.min_utterance_words and not _is_meaningful_short_utterance(full):
+    log("Utterance too short, skipping")
+    return
+```
+
+Make the whitelist configurable via .env: SHORT_UTTERANCE_WHITELIST=sorry,pardon,repeat,... (comma-separated). Defaults to the list above.
+
+## Fix 3: CALL TIMELINE summary shows negative numbers
+
+In agent/metrics.py, the CALL TIMELINE log line is computing deltas like:
+- llm_token→tts_byte=-38611ms
+- speech_end→first_audio=-37493ms
+
+These are negative because the summary uses t_first_llm_token from turn 1 but t_first_tts_byte from turn 3 (or vice versa). Per-turn TURN lines are correct.
+
+Either:
+A) Remove the call-level deltas from CALL TIMELINE and keep only ws→stt_partial, ws→speech_end (one-shot events)
+B) Replace per-call deltas with per-turn averages: avg_llm_ttft, avg_tts_ttft, avg_e2e (which CALL END already has)
+
+Pick B. Update the log format. Add a test that asserts no negative values in CALL TIMELINE output.
+
+## Tests
+
+- test_warmup_runs_on_startup (lifespan triggers warmup task)
+- test_short_utterance_whitelist (input "sorry?" reaches _handle_user_turn, "yeah" reaches it, single "um" does not)
+- test_call_timeline_no_negatives (mock 3 turns, assert all delta values >= 0)
+
+All 35 existing + 3 new tests = 38 must pass.
+
+Update CHANGES.md with each fix and rationale.
+
+Show diff of every changed file.
+
+=== line 2287 ===
+Groq Dev Tier is temporarily unavailable. We're switching the LLM chain so OpenAI is primary and Groq is fallback. The user has funded OpenAI with $5 credit; Groq stays on free tier (100K tokens/day, resets daily).
+
+## STEP 1 — AUDIT (do not skip)
+
+Read agent/fallback.py, llm/groq_client.py, llm/openai_client.py (if exists), config.py, and main.py.
+
+Write CHAIN_FLIP_AUDIT.md with:
+1. Where is the provider order encoded? (hardcoded in groq_client.py? config-driven?)
+2. What renaming is needed? `groq_client.py` is misnamed if Groq is no longer primary — should it become `llm_client.py` with provider-agnostic naming?
+3. List every reference to "groq" as primary in code/comments/logs that should change
+4. List every reference to "openai" as fallback that should change
+5. Are the per-provider timeouts (4s primary, 8s fallback) still appropriate after flip? OpenAI gpt-4o-mini TTFT is typically 300-500ms, so 8s primary timeout is fine. Groq fallback 4s is fine since free tier may be slow at peak.
+
+STOP and show audit before fixing.
+
+## STEP 2 — FIX
+
+After audit approval, implement:
+
+### .env config flip
+LLM_PRIMARY_MODEL=gpt-4o-mini
+LLM_PRIMARY_TIMEOUT_S=8
+LLM_PRIMARY_PROVIDER=openai
+LLM_FALLBACK_MODEL=llama-3.3-70b-versatile
+LLM_FALLBACK_TIMEOUT_S=4
+LLM_FALLBACK_PROVIDER=groq
+LLM_CIRCUIT_FAIL_THRESHOLD=2
+LLM_CIRCUIT_COOLDOWN_S=120
+
+### Code changes
+
+1. In agent/fallback.py and llm/groq_client.py (or whatever is named "groq" but acts as the LLM dispatcher):
+   - Make provider order config-driven. Primary calls go to whichever provider is configured as `LLM_PRIMARY_PROVIDER`.
+   - Both OpenAI and Groq use the same AsyncOpenAI SDK with different base_urls and API keys, so the implementation should be unified.
+   - The dispatcher should accept (primary_provider, fallback_provider) at init, NOT hardcoded "groq → openai".
+
+2. Rename groq_client.py to llm_client.py (or keep filename but update class names from GroqClient to LLMClient if it isn't already). The file should NOT have "groq" in any function name unless it's specifically Groq-only.
+
+3. Update circuit breaker to track per-provider state, not "groq breaker" specifically. Keep two _CircuitBreaker instances keyed by provider name.
+
+4. Update CALL END counter names:
+   - Old: groq_used=N openai_used=M
+   - New: primary_used=N fallback_used=M (with the actual provider names logged separately at startup)
+   - This way swapping primaries doesn't require log-format changes downstream
+
+5. Update logs:
+   - Old: "Groq RateLimitError before yield (94ms) — falling back to OpenAI"
+   - New: "{primary} RateLimitError before yield (94ms) — falling back to {fallback}"
+   Use f-strings with provider names from settings.
+
+6. Warmup ping:
+   - Currently warmups Groq. Change to warmup the primary provider (OpenAI in this case).
+   - If primary is OpenAI, hitting api.openai.com costs ~$0.0001 — negligible, but worth noting.
+
+### Tests
+
+Update existing tests to:
+- Test the dispatcher with both possible orderings (groq→openai AND openai→groq) — parameterize via fixture
+- Don't hardcode "groq" or "openai" string names where they shouldn't matter
+
+Add test:
+- test_provider_order_config_driven: setting LLM_PRIMARY_PROVIDER=openai routes to OpenAI client, fallback to Groq
+- test_provider_order_reversed: setting LLM_PRIMARY_PROVIDER=groq routes to Groq client, fallback to OpenAI
+
+All 38 existing + 2 new tests = 40 must pass.
+
+## STEP 3 — VERIFY
+
+1. Show diff of every changed file
+2. Show updated .env.example with new vars
+3. Run pytest -xvs, paste full output
+4. Update CHANGES.md with rationale: "Groq Dev Tier unavailable, flipped to OpenAI primary"
+5. Update README.md so the LLM section explains the chain is config-driven, not Groq-centric
+
+## RULES
+
+- Do NOT change .env directly (user manages secrets and config). Provide the exact lines to add.
+- Do NOT delete the Groq integration — it stays as fallback
+- Do NOT introduce new dependencies
+- After Step 1, stop and confirm audit before proceeding
+
+Begin Step 1.
+
+=== line 2319 ===
+APPROVED. Proceed with Step 2 with these specifics:
+
+## Backwards-compatibility approach
+
+Don't break the world. Use ALIASES so tests written against the old names still work during migration:
+
+```python
+# In llm/llm_client.py
+class LLMClient:
+    def __init__(self, ...):
+        self._primary = AsyncOpenAI(...)    # whichever provider is primary
+        self._fallback = AsyncOpenAI(...)   # whichever provider is fallback
+        self._primary_cb = _CircuitBreaker(...)
+        self._fallback_cb = _CircuitBreaker(...)
+        
+        # Backwards-compat aliases (deprecated, will be removed in next release)
+        self._groq = self._primary if settings.llm_primary_provider == "groq" else self._fallback
+        self._openai = self._primary if settings.llm_primary_provider == "openai" else self._fallback
+        self._groq_cb = self._primary_cb if settings.llm_primary_provider == "groq" else self._fallback_cb
+```
+
+This lets the existing tests pass without immediate rewrite. Mark aliases with a comment `# DEPRECATED: use _primary / _fallback`. Plan to remove in CHANGES.md as a "to be removed in v2.x" note.
+
+## Provider abstraction
+
+Both providers use AsyncOpenAI SDK with different base_url. Define provider configs as a dict:
+
+```python
+PROVIDER_CONFIG = {
+    "openai": {
+        "base_url": None,  # default
+        "api_key_env": "OPENAI_API_KEY",
+        "default_model": "gpt-4o-mini",
+    },
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY",
+        "default_model": "llama-3.3-70b-versatile",
+    },
+}
+```
+
+This way adding a third provider (Anthropic, Cohere, Together) later means adding one dict entry, not refactoring.
+
+## Validation at startup
+
+In main.py lifespan, after settings load, validate:
+
+```python
+if settings.llm_primary_provider == settings.llm_fallback_provider:
+    raise RuntimeError(
+        f"llm_primary_provider and llm_fallback_provider cannot both be "
+        f"{settings.llm_primary_provider!r}. Set them to different providers in .env."
+    )
+
+if settings.llm_primary_provider not in PROVIDER_CONFIG:
+    raise RuntimeError(f"Unknown llm_primary_provider: {settings.llm_primary_provider!r}")
+
+# Check that the API key for the chosen provider is actually set
+primary_key_env = PROVIDER_CONFIG[settings.llm_primary_provider]["api_key_env"]
+if not os.environ.get(primary_key_env):
+    raise RuntimeError(f"{primary_key_env} not set in environment, required for primary provider")
+
+# Same for fallback if configured
+```
+
+This catches misconfig before the first call instead of failing mid-conversation.
+
+## Warmup
+
+The warmup should hit the primary provider, whichever that is. The current Groq-specific warmup must be generalized.
+
+```python
+async def _warmup_llm(llm: LLMClient):
+    try:
+        await asyncio.wait_for(
+            llm.complete_once(
+                model=settings.llm_primary_model,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+            ),
+            timeout=5.0,
+        )
+        logger.info(f"LLM warmup complete (provider={settings.llm_primary_provider})")
+    except Exception as e:
+        logger.warning(f"LLM warmup failed (non-fatal, provider={settings.llm_primary_provider}): {e}")
+```
+
+## Log clarity
+
+At startup, log the resolved chain ONCE so debugging is easy:
+
+```python
+logger.info(
+    f"LLM chain: primary={settings.llm_primary_provider}/{settings.llm_primary_model} "
+    f"fallback={settings.llm_fallback_provider}/{settings.llm_fallback_model}"
+)
+```
+
+## /debug/config endpoint
+
+Expose the new fields:
+- llm_primary_provider
+- llm_primary_model
+- llm_fallback_provider
+- llm_fallback_model
+- circuit_fail_threshold
+- circuit_cooldown_s
+
+Do NOT expose API keys.
+
+## Tests
+
+The two new tests already specified. Plus:
+- test_startup_fails_if_same_provider_for_primary_and_fallback
+- test_startup_fails_if_primary_api_key_missing
+
+40 + 2 = 42 tests must pass.
+
+## .env
+
+Don't modify the user's .env directly. Instead, write the exact lines they need to add to .env.example AND print them at the end of CHANGES.md so the user can copy-paste.
+
+## File renames
+
+llm/groq_client.py → llm/llm_client.py is approved. Update all 7 import sites. Use git mv if available so history is preserved.
+
+## CHANGES.md
+
+Document:
+1. Why we flipped (Groq Dev Tier unavailable)
+2. The exact .env changes the user must make
+3. The deprecated aliases and when they'll be removed
+4. The migration is non-breaking — old config (no LLM_PRIMARY_PROVIDER set) defaults to openai primary, same as new config
+
+Proceed.
+
+=== line 2521 ===
+Three live-call issues to fix.
+
+## STEP 1 — AUDIT (do not skip)
+
+Read these files and write LATENCY_VOICE_AUDIT.md:
+
+1. config.py — show exactly how endpoint_ms, dg_endpointing_ms, and ElevenLabs voice settings are loaded
+2. tts/elevenlabs_tts.py — show the exact ElevenLabs API call: voice_id, model, voice_settings dict, stream params
+3. agent/call_session.py — show where endpoint_ms is read and applied to the endpoint timer
+4. .env / config defaults — list all current values for: endpoint_ms, dg_endpointing_ms, elevenlabs_voice_id, elevenlabs_model, voice settings (stability, similarity_boost, style, speaker_boost), tts_speed
+
+Then run:
+- curl -s http://localhost:8000/debug/config (or read from settings) — show currently active values
+
+STOP after audit. Show me before fixing.
+
+## STEP 2 — FIX (after audit approval)
+
+Apply these changes:
+
+### A) Reduce endpoint silence (Issue 1: late reply)
+
+Change defaults in config.py and .env.example:
+- endpoint_ms: 1200 → 800
+- dg_endpointing_ms: 1200 → 800
+- min_utterance_words: keep at 2 (already correct)
+- short_utterance_whitelist: keep current (already handles "sorry"/"yes"/etc.)
+
+Make these env-overridable. User can lower further to 600 if too slow, raise to 1000 if agent interrupts.
+
+### B) Speed up and clarify TTS (Issue 2)
+
+In tts/elevenlabs_tts.py, update the ElevenLabs API call:
+
+```python
+voice_settings = {
+    "stability": settings.tts_stability,            # default 0.4 (was probably 0.5)
+    "similarity_boost": settings.tts_similarity,    # default 0.85 (was probably 0.75)
+    "style": settings.tts_style,                    # default 0.15 (NEW - adds prosody)
+    "use_speaker_boost": settings.tts_speaker_boost, # default True (NEW)
+    "speed": settings.tts_speed,                     # default 1.05 (NEW - 5% faster)
+}
+```
+
+API call params:
+- model_id: keep eleven_flash_v2_5 (it's the fastest)
+- output_format: ulaw_8000 (already correct)
+- optimize_streaming_latency: 4 (was probably 3, bump to max — costs slight quality, gains 50ms)
+
+Add to config.py with these defaults:
+- tts_stability: 0.4
+- tts_similarity: 0.85
+- tts_style: 0.15
+- tts_speaker_boost: True
+- tts_speed: 1.05
+
+All env-overridable: TTS_STABILITY, TTS_SIMILARITY, TTS_STYLE, TTS_SPEAKER_BOOST, TTS_SPEED.
+
+### C) Voice ID — DO NOT change
+
+User has a custom voice ID (EMh4QfWp9dtmYomyxDic). Do NOT change it without explicit instruction. The voice settings above will improve the existing voice's clarity and pace without swapping the voice itself.
+
+Add a config field `elevenlabs_voice_id` (EMh4QfWp9dtmYomyxDic) with the current value as default, so user can swap voices later by changing .env without code changes.
+
+### D) Update /debug/config to expose all new fields
+
+So we can verify settings are loaded.
+
+## STEP 3 — TESTS
+
+Add tests/test_tts_settings.py:
+1. Assert ElevenLabs API request body includes all 5 voice_settings fields
+2. Assert speed defaults to 1.05
+3. Assert endpoint_ms defaults to 800
+
+All existing tests must still pass.
+
+## STEP 4 — VERIFY
+
+1. Show diff of every changed file
+2. Run pytest — paste output
+3. Update CHANGES.md with rationale for each value chosen
+4. Update README.md env var section
+
+Begin Step 1.
+
+=== line 2547 ===
+APPROVED. Proceed with Step 2 with these specifics:
+
+## Critical correction — endpoint_ms should be MUCH lower than dg_endpointing_ms
+
+The audit identified that endpoint_ms is meant as a COALESCING buffer for is_final bursts, not as a duplicate silence timer. So it should be tiny — just enough to merge rapid bursts.
+
+Revised values:
+- dg_endpointing_ms: 1200 → 800   (Deepgram does the real silence detection)
+- endpoint_ms: 1200 → 250          (just buffers rapid is_final events from Deepgram, NOT a silence timer)
+- min_utterance_words: 2 (unchanged)
+
+Total added silence after user stops: ~800ms (Deepgram) + ~50ms (coalescing) = ~850ms.
+Compared to old: 2400ms. Net latency cut: ~1.5 seconds per turn.
+
+If user reports agent interrupting mid-sentence after this change, raise dg_endpointing_ms to 1000. Don't raise endpoint_ms — that's the wrong knob.
+
+## TTS settings — apply as proposed
+
+All five fields env-overridable:
+- TTS_STABILITY=0.4
+- TTS_SIMILARITY_BOOST=0.85
+- TTS_STYLE=0.15
+- TTS_SPEAKER_BOOST=true
+- TTS_SPEED=1.05
+
+ElevenLabs API call:
+- output_format=ulaw_8000 (unchanged)
+- optimize_streaming_latency=4 (was 3)
+- model_id=eleven_flash_v2_5 (unchanged)
+
+## Voice ID — leave alone, already correct
+
+Audit confirmed it's already env-driven via ELEVENLABS_VOICE_ID. Skip this section.
+
+## /debug/config additions
+
+Add fields:
+- endpoint_ms
+- dg_endpointing_ms  
+- tts_stability
+- tts_similarity_boost
+- tts_style
+- tts_speaker_boost
+- tts_speed
+- elevenlabs_voice_id (already there if exposed)
+
+So user can verify settings are live.
+
+## Tests
+
+1. test_endpoint_ms_default_is_250 — assert default in config.py is 250
+2. test_dg_endpointing_default_is_800 — assert default is 800
+3. test_tts_voice_settings_all_5_fields — mock ElevenLabs call, assert request body voice_settings dict has stability, similarity_boost, style, use_speaker_boost, speed
+4. test_speed_defaults_to_1_05
+5. test_optimize_streaming_latency_is_4
+
+All existing tests + 5 new = pass.
+
+## CHANGES.md
+
+Document the stacked-timer issue prominently. Include this exact paragraph:
+
+"Pre-fix: Deepgram endpointing (1200ms) + client endpoint timer (1200ms) ran in series, adding 2400ms of dead air after user stopped speaking before LLM dispatch. Post-fix: Deepgram endpointing (800ms) for natural pause tolerance + client endpoint timer (250ms) for is_final coalescing only. Net reduction: ~1.5s per turn."
+
+This is the single biggest UX win in the project so far. Document it well.
+
+## README.md
+
+Add a section "Tuning silence detection" with this guidance table:
+
+| Symptom | Fix |
+|---|---|
+| Agent interrupts mid-sentence | DG_ENDPOINTING_MS=1000 |
+| Agent slow to reply (still feels laggy) | DG_ENDPOINTING_MS=600 |
+| Voice settings feel robotic | TTS_STYLE=0.25 |
+| Voice mumbled | TTS_STABILITY=0.5 |
+
+Begin Step 2.
+
+=== line 2607 ===
+The agent should ask exactly 4 production support questions and then end the interview. Update system_prompt.txt with these specifics:
+
+## Required prompt structure
+
+Replace the existing interview portion with this exact flow:
+
+1. After the candidate confirms they have time, ask exactly 4 production support questions, ONE AT A TIME. Wait for the candidate's full answer before moving to the next question.
+
+2. The 4 questions are:
+
+Q1: "What does your typical day-to-day look like as a production support engineer?"
+Q2: "How do you prioritize tickets when multiple incidents come in at once?"  
+Q3: "Walk me through how you'd troubleshoot a sudden spike in failed transactions on a banking application."
+Q4: "Tell me about a time you escalated an issue to L3. What made you decide to escalate?"
+
+3. After the candidate answers Q4, the agent must say: "Thank you for your time. We'll be in touch within 2 business days. Have a great day." Then end the conversation gracefully.
+
+4. CRITICAL behavior rules to add:
+- Wait for the candidate to FINISH their full answer before responding. Do not interrupt mid-sentence. Pauses are normal — wait at least 2 seconds of silence before assuming they're done.
+- After each answer, give a brief acknowledgment ("Got it" / "Thanks" / "I see") then ask the NEXT question. Do not repeat or rephrase the candidate's answer.
+- If the candidate says "sorry" / "pardon" / "repeat" / "didn't understand" — repeat the LAST question, slightly simpler. Do NOT advance to the next question.
+- If the candidate gives a very short or vague answer to Q1-Q4, ask ONE follow-up: "Can you walk me through that in a bit more detail?" Then move on. Maximum one follow-up per question.
+- Do NOT ask about salary, notice period, location, or anything else. ONLY the 4 production support questions above plus follow-ups.
+- Keep YOUR responses under 25 words each. Be concise.
+
+5. Track question count internally. After Q4 + any follow-up, immediately go to the closing message above. Do not invent a Q5.
+
+Update system_prompt.txt to encode all of the above. Keep the persona (Saanvi, recruitment team) but enforce strict question limit.
+
+Show the full new system_prompt.txt content in CHANGES.md.
+
+=== line 2638 ===
+The agent feels robotic on real calls. Three changes to make it sound human.
+
+## CHANGE 1 — Voice settings tuned for warmth, not consistency
+
+In tts/elevenlabs_tts.py and config.py defaults, change:
+
+- tts_stability: 0.4 → 0.3 (more variation per phrase = more natural)
+- tts_similarity: 0.85 → 0.75 (less locked to reference, more emotion)
+- tts_style: 0.15 → 0.45 (significant prosodic variation — expressive)
+- tts_speed: 1.05 → 1.0 (slightly slower, less rushed)
+- tts_speaker_boost: True (keep)
+
+Document in CHANGES.md: "Voice tuned from 'consistent narrator' to 'warm conversationalist'. Trade-off: occasional pronunciation oddities for dramatic improvement in perceived naturalness."
+
+All env-overridable so user can tune live.
+
+## CHANGE 2 — System prompt rewrite for conversational style
+
+Update system_prompt.txt. Keep the 4-question structure and persona, but rewrite the response style rules. Replace any "CRITICAL VOICE RULES" or response-style section with:
+
+=== line 2644 ===
+The agent feels robotic on real calls. Three changes to make it sound human.
+
+## CHANGE 1 — Voice settings tuned for warmth, not consistency
+
+In tts/elevenlabs_tts.py and config.py defaults, change:
+- tts_stability: 0.4 → 0.3 (more variation per phrase = more natural)
+- tts_similarity: 0.85 → 0.75 (less locked to reference, more emotion)
+- tts_style: 0.15 → 0.45 (significant prosodic variation — expressive)
+- tts_speed: 1.05 → 1.0 (slightly slower, less rushed)
+- tts_speaker_boost: True (keep)
+
+Document in CHANGES.md: "Voice tuned from 'consistent narrator' to 'warm conversationalist'. Trade-off: occasional pronunciation oddities for dramatic improvement in perceived naturalness."
+
+All env-overridable so user can tune live.
+
+## CHANGE 2 — System prompt rewrite for conversational style
+
+Update system_prompt.txt. Keep the 4-question structure and persona, but rewrite the response style rules. Replace any "CRITICAL VOICE RULES" or response-style section with this exact content:
+
+---
+
+RESPONSE STYLE — IMPORTANT:
+
+You are a real human recruiter named Saanvi. Speak like a human, not a chatbot.
+
+USE conversational fillers naturally: "Mhm", "Got it", "Right, right", "I see", "Okay so", "Hmm interesting", "Yeah", "Cool", "Alright"
+
+USE thinking sounds when transitioning: "So...", "Umm...", "Lemme see...", "Okay let's see..."
+
+USE natural reactions to answers: "Oh nice", "That's interesting", "Makes sense", "Got it, got it"
+
+DO NOT start every response with the same word. Vary openings.
+
+DO NOT say "Could you walk me through..." or "Tell me about..." — too formal. Instead say:
+- "Okay so [question]?"
+- "Alright, [question]?"
+- "Hmm, [question]?"
+- "Cool. [question]?"
+
+DO NOT explain what you're doing ("Now I'm going to ask you about...")
+
+KEEP responses under 20 words. Real recruiters are brief.
+
+USE contractions always: "you're" not "you are", "I'd" not "I would", "let's" not "let us"
+
+PUNCTUATION matters for voice — use commas to create natural pauses, ellipses for hesitation.
+
+EXAMPLES of correct style:
+
+GOOD: "Mhm, got it. So umm, how do you prioritize when multiple tickets come in at once?"
+BAD: "I see. Could you tell me about how you prioritize tickets?"
+
+GOOD: "Right right. Okay so... walk me through troubleshooting a sudden spike in failed transactions."
+BAD: "Got it. Now I'd like to understand how you would troubleshoot a sudden spike."
+
+GOOD: "Hmm interesting. So tell me — when's a time you escalated to L3?"
+BAD: "Thank you. Could you describe a situation where you escalated an issue to L3?"
+
+GOOD (closing): "Awesome, that's all from my side. We'll be in touch in a couple days. Thanks for your time, take care!"
+BAD (closing): "Thank you for your time. We'll be in touch within 2 business days. Have a great day."
+
+---
+
+Keep the 4-question content the same, just rewrite the question phrasing in section 4 to match the new casual style. Keep the question count tracking (Q1-Q4) and the closing-after-Q4 logic. Keep the persona (Saanvi, recruitment team).
+
+## CHANGE 3 — Live acknowledgment tokens (advanced, optional)
+
+This is the real human-ness fix. While the user is mid-sentence and Deepgram returns interim transcripts, the agent should occasionally play a brief "mhm" or "yeah" — like a real listener.
+
+Implementation:
+- In agent/call_session.py, when STT returns interim (NOT is_final) transcripts AND agent is not currently speaking AND time since last ack > 4 seconds AND user has been speaking >2 seconds:
+  - Play a pre-cached short audio clip (200-400ms) of "mhm" or "yeah" or "okay"
+  - Don't trigger LLM, don't add to conversation
+  - Just play the audio over the websocket
+
+- Pre-generate 4-5 short ack audio files at startup using ElevenLabs (cache in /cache/acks/*.ulaw):
+  - mhm.ulaw, yeah.ulaw, right.ulaw, okay.ulaw, got_it.ulaw
+
+- Pick one randomly each time (no repeating the same one twice in a row)
+
+Add config:
+- ENABLE_BACKCHANNELS=true (default true)
+- BACKCHANNEL_MIN_INTERVAL_S=4
+- BACKCHANNEL_MIN_USER_SPEECH_S=2
+
+If implementation is complex, mark as Phase 2 and skip — but Changes 1 and 2 MUST ship.
+
+## TESTS
+
+For Change 1: assert config defaults match new values, assert ElevenLabs request body has new voice_settings.
+
+For Change 2: regex test that system_prompt.txt contains "Mhm" or "Got it" example, contains "DO NOT say 'Could you walk me through'", and the closing line matches the new casual version.
+
+For Change 3 (if implemented): test that ack audio is loaded at startup, test that ack is sent only when conditions met.
+
+All existing tests must still pass. Update CHANGES.md.
+
+Show diffs of every changed file. Show the full new system_prompt.txt content in CHANGES.md.
+

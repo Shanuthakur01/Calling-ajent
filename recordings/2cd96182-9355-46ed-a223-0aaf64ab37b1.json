@@ -1,0 +1,105 @@
+{
+  "call_id": "2cd96182-9355-46ed-a223-0aaf64ab37b1",
+  "started_at": "2026-05-05T05:37:18.339384+00:00",
+  "ended_at": "2026-05-05T05:39:55.973923+00:00",
+  "duration_s": 157.6,
+  "end_reason": "user_hangup",
+  "transcript": [
+    {
+      "role": "agent",
+      "text": "Good day, this is Saanvi calling from the recruitment team. I'm reaching out regarding the Production Support Engineer position. Is this a convenient time to speak?",
+      "ts": 3.21,
+      "duration_ms": 10727.6
+    },
+    {
+      "role": "user",
+      "text": "Okay.",
+      "ts": 14.02,
+      "duration_ms": null
+    },
+    {
+      "role": "user",
+      "text": "Yes. This is Yes. This is a convenient info?",
+      "ts": 19.59,
+      "duration_ms": null
+    },
+    {
+      "role": "agent",
+      "text": "Great! So I've got four quick questions for you, shouldn't take long. Let's jump right in. Okay so, what does your typical day-to-day look like as a production support engineer?",
+      "ts": 31.56,
+      "duration_ms": 11563.6
+    },
+    {
+      "role": "user",
+      "text": "Okay. A typical okay in a production support means monitoring application, handling in and checking logs, supporting user business team, and making sure production run smoothly with the minimum downtime.",
+      "ts": 54.93,
+      "duration_ms": null
+    },
+    {
+      "role": "agent",
+      "text": "Mhm, got it. And how do you prioritize when multiple incidents come in at once?",
+      "ts": 61.41,
+      "duration_ms": 5805.0
+    },
+    {
+      "role": "user",
+      "text": "No So there you get a multiple ticket don't work randomly. Right, prioritize then handle one by one based on the business impact and urgency.",
+      "ts": 74.17,
+      "duration_ms": null
+    },
+    {
+      "role": "agent",
+      "text": "Oh nice, makes sense. Okay so... walk me through how you'd troubleshoot a sudden spike in failed transactions on a banking app.",
+      "ts": 82.91,
+      "duration_ms": 8127.0
+    },
+    {
+      "role": "user",
+      "text": "Okay for pick transaction and duplicate transaction. In a particular support, 12 students should be very careful because it involve money, audit, and customer trust.",
+      "ts": 97.91,
+      "duration_ms": null
+    },
+    {
+      "role": "agent",
+      "text": "Hmm interesting. Right right. So umm — tell me about a time you escalated to L3. What made you decide to?",
+      "ts": 106.83,
+      "duration_ms": 7523.2
+    },
+    {
+      "role": "user",
+      "text": "Okay. No I travel through the break and the space to transaction. I first collect the ID, user ID, amount, amount, order ID, and payment reference number. Then I nope to the application database status with the payment gateway status. I check log for payment in right JSON.",
+      "ts": 129.26,
+      "duration_ms": null
+    },
+    {
+      "role": "agent",
+      "text": "Got it, got it. Can you walk me through that in a bit more detail?",
+      "ts": 134.17,
+      "duration_ms": 4504.6
+    },
+    {
+      "role": "user",
+      "text": "No. I don't.",
+      "ts": 140.75,
+      "duration_ms": null
+    },
+    {
+      "role": "agent",
+      "text": "Okay, that's fine! Awesome, that's all from my side. We'll be in touch in a couple days . Thanks for your time, take care!",
+      "ts": 149.11,
+      "duration_ms": 7941.2
+    }
+  ],
+  "metrics": {
+    "turns": 6,
+    "avg_e2e_ms": 1010,
+    "avg_llm_ttft_ms": 388,
+    "avg_tts_ttft_ms": 1010,
+    "speculative_hit_rate": 0.43,
+    "speculative_savings_ms": 2840,
+    "fallbacks_triggered": 0,
+    "tts_ws_open_count": 22,
+    "pipelines_fired": 7
+  },
+  "errors": []
+}
