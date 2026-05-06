@@ -48,7 +48,7 @@ from agent.speculative import SpeculativeWorker
 from audio.converter import decode_twilio_payload, mulaw_to_linear16
 from pathlib import Path
 
-from config import settings
+from config import get_system_prompt, settings
 from agent.recorder import CallRecorder
 from llm.llm_client import LLMClient
 from stt.deepgram_client import DeepgramSTTClient
@@ -178,7 +178,7 @@ class CallSession:
         self._active = True
 
         self._history: List[Dict] = [
-            {"role": "system", "content": settings.system_prompt}
+            {"role": "system", "content": get_system_prompt()}
         ]
 
         self._stt = DeepgramSTTClient(
@@ -207,7 +207,8 @@ class CallSession:
         self._last_backchannel_at: float = 0.0
 
         self._call_metrics = CallMetrics(call_id=call_sid)
-        self._call_metrics.t_ws_connected = time.perf_counter()
+        self._call_metrics.t_ws_connected  = time.perf_counter()
+        self._call_metrics.call_start_wall = time.time()
 
         self._end_reason: str = "user_hangup"
         self._pipelines_fired: int = 0
@@ -266,9 +267,26 @@ class CallSession:
         await self._stt.close()
         unregister(self._call_sid)
 
+        cm = self._call_metrics
+
+        # Compute and log cost — wrapped so a crash here never aborts recorder.close()
+        cost: dict = {}
+        try:
+            cm.plivo_seconds = time.time() - (cm.call_start_wall if cm.call_start_wall > 0 else time.time())
+            cost = cm.compute_cost_usd()
+            logger.info(
+                "COST  call=%s  stt=$%.4f  llm=$%.4f  tts=$%.4f  plivo=$%.4f  total=$%.4f",
+                self._call_sid,
+                cost["stt_usd"], cost["llm_usd"], cost["tts_usd"],
+                cost["plivo_usd"], cost["total_usd"],
+            )
+            from agent.cost_tracker import add_call_cost
+            add_call_cost(cost["total_usd"])
+        except Exception as exc:
+            logger.error("Cost tracking failed call=%s: %s", self._call_sid, exc, exc_info=True)
+
         if self._recorder is not None:
             import tts.elevenlabs_ws as _tws_mod
-            cm = self._call_metrics
             n  = len(cm.turns)
             rec_metrics = {
                 "turns":                  n,
@@ -280,10 +298,22 @@ class CallSession:
                 "fallbacks_triggered":    cm.fallbacks_triggered,
                 "tts_ws_open_count":      _tws_mod.tts_ws_open_count,
                 "pipelines_fired":        self._pipelines_fired,
+                "cost_breakdown":         cost,
             }
             await self._recorder.close(self._end_reason, rec_metrics)
 
-        self._call_metrics.log_summary()
+            if self._recorder._final_doc is not None:
+                try:
+                    from agent.mongo_writer import MongoWriter
+                    await MongoWriter.instance().write_call(
+                        recording=self._recorder._final_doc,
+                        phone=None,
+                        candidate_name=None,
+                    )
+                except Exception as exc:
+                    logger.error("Mongo write threw outside writer: %s", exc, exc_info=True)
+
+        cm.log_summary()
         logger.info("CallSession %s closed", self._call_sid)
 
     # ── Inbound audio → STT ───────────────────────────────────────────────
@@ -300,6 +330,8 @@ class CallSession:
             if self._echo_guard.is_echo(linear16):
                 return
         await self._stt.send_audio(linear16)
+        # linear16 is 16-bit mono at 8kHz = 16000 bytes/sec
+        self._call_metrics.stt_seconds += len(linear16) / 16000.0
 
     # ── STT callback ──────────────────────────────────────────────────────
 

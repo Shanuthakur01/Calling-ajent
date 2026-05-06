@@ -2,6 +2,18 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import Optional
 
+# Per-provider billing rates — not env-overridable (change here + restart)
+COST_RATES: dict = {
+    "deepgram_stt_per_min":          0.0043,
+    "openai_input_per_1k_tokens":    0.000150,
+    "openai_output_per_1k_tokens":   0.000600,
+    "groq_input_per_1k_tokens":      0.00059,
+    "groq_output_per_1k_tokens":     0.00079,
+    "elevenlabs_per_1k_chars":       0.30,
+    "deepgram_tts_per_1k_chars":     0.015,
+    "plivo_per_min":                 0.0125,
+}
+
 _PROMPT_FILE = Path(__file__).parent / "system_prompt.txt"
 
 _CONVERSATION_RULES = (
@@ -25,6 +37,16 @@ def _load_system_prompt() -> str:
         "Keep your answers concise and conversational since the user is listening, not reading. "
         "Avoid lists, bullet points, markdown, or special characters. Speak naturally."
     )
+
+
+def get_system_prompt() -> str:
+    """Load system prompt fresh from disk per call, with conversation rules appended."""
+    prompt = Path(settings.system_prompt_path).read_text(encoding="utf-8").strip() \
+        if Path(settings.system_prompt_path).exists() \
+        else _load_system_prompt()
+    if _CONVERSATION_RULES not in prompt:
+        prompt = prompt + "\n\n" + _CONVERSATION_RULES
+    return prompt
 
 
 class Settings(BaseSettings):
@@ -141,6 +163,18 @@ class Settings(BaseSettings):
     )                                   # env: FORBIDDEN_PHRASES
     tts_circuit_fail_threshold: int = 2    # env: TTS_CIRCUIT_FAIL_THRESHOLD
     tts_circuit_cooldown_s: float = 120.0  # env: TTS_CIRCUIT_COOLDOWN_S
+
+    # Phase 8 — Cost accounting + rate limiting
+    daily_cost_limit_usd: float = 10.0      # env: DAILY_COST_LIMIT_USD
+    rate_limit_calls_per_hour: int = 5      # env: RATE_LIMIT_CALLS_PER_HOUR
+    usd_to_inr: float = 83.5               # env: USD_TO_INR — manual exchange rate for dashboard display
+    system_prompt_path: str = str(_PROMPT_FILE)  # env: SYSTEM_PROMPT_PATH
+
+    # Phase 9 — MongoDB persistence
+    mongodb_uri: Optional[str] = None          # env: MONGODB_URI
+    mongodb_database: str = "test"             # env: MONGODB_DATABASE
+    mongodb_collection: str = "Calling ajent"  # env: MONGODB_COLLECTION
+    mongodb_enabled: bool = True               # env: MONGODB_ENABLED
 
     def stt_drop_phrases_list(self) -> list[str]:
         return [p.strip().lower() for p in self.stt_drop_phrases.split(",") if p.strip()]

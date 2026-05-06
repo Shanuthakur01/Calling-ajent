@@ -85,6 +85,8 @@ async def tts_with_fallback(
                 started = True
                 yield chunk
             _elevenlabs_cb.record_success()
+            if call_metrics is not None:
+                call_metrics.tts_chars_elevenlabs += len(text)
             return
         except Exception as exc:
             if started:
@@ -103,6 +105,8 @@ async def tts_with_fallback(
             started = True
             yield chunk
         _elevenlabs_cb.record_success()
+        if call_metrics is not None:
+            call_metrics.tts_chars_elevenlabs += len(text)
         return
     except _FALLBACK_ERRORS as exc:
         if started:
@@ -120,3 +124,5 @@ async def tts_with_fallback(
     # ── Tier 3: Deepgram TTS ──────────────────────────────────────────────
     async for chunk in dg_stream(text, http_client):
         yield chunk
+    if call_metrics is not None:
+        call_metrics.tts_chars_deepgram += len(text)

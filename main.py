@@ -21,25 +21,30 @@ Graceful shutdown:
 """
 
 import asyncio
+import json
 import logging
 import os
 import signal
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv
 
 import httpx
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 import state
+from fastapi.staticfiles import StaticFiles
+
 from agent.backchannels import ensure_ack_cache
+from agent.mongo_writer import MongoWriter
 from agent.session_registry import all_sessions
 from config import settings
-from dashboard import DASHBOARD_HTML
+from dashboard import render_dashboard, render_calls, render_agent
 from llm.llm_client import LLMClient, PROVIDER_CONFIG
 from telephony.plivo_handler import PlivoStreamHandler
 from telephony.plivo_outbound import make_call
@@ -163,6 +168,8 @@ async def lifespan(app: FastAPI):
     logger.info("Singleton clients initialised: LLMClient, PlivoRestClient, httpx.AsyncClient")
     asyncio.create_task(_warmup_llm(app.state.llm), name="llm-warmup")
 
+    await MongoWriter.instance().connect()
+
     yield
 
     # ── Graceful shutdown ──────────────────────────────────────────────────
@@ -177,6 +184,7 @@ async def lifespan(app: FastAPI):
         except asyncio.TimeoutError:
             logger.warning("Drain timed out — forcing shutdown")
 
+    await MongoWriter.instance().close()
     await app.state.plivo.close()
     await app.state.http.aclose()
     logger.info("Voice AI Agent shut down cleanly")
@@ -184,14 +192,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Voice AI Calling Agent", version="3.0.0", lifespan=lifespan)
 
+_static_dir = Path(__file__).parent / "static"
+_static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 
 # ---------------------------------------------------------------------------
-# Dashboard
+# Page routes
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard() -> HTMLResponse:
-    return HTMLResponse(content=DASHBOARD_HTML)
+async def page_root() -> HTMLResponse:
+    return HTMLResponse(content=render_dashboard())
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def page_dashboard() -> HTMLResponse:
+    return HTMLResponse(content=render_dashboard())
+
+@app.get("/calls", response_class=HTMLResponse)
+async def page_calls() -> HTMLResponse:
+    return HTMLResponse(content=render_calls())
+
+@app.get("/agent", response_class=HTMLResponse)
+async def page_agent() -> HTMLResponse:
+    return HTMLResponse(content=render_agent())
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +251,12 @@ async def trigger_call(request: Request) -> JSONResponse:
 # Plivo answer_url webhook
 # ---------------------------------------------------------------------------
 
+_HANGUP_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    "<Response><Hangup/></Response>"
+)
+
+
 def _build_xml(request: Request) -> Response:
     # Always derive the WebSocket URL from settings.base_url — never from the
     # incoming Host header, which reflects whatever tunnel URL the *caller* used
@@ -246,15 +276,54 @@ def _build_xml(request: Request) -> Response:
     return Response(content=xml, media_type="text/xml")
 
 
+def _check_call_allowed(from_number: str) -> Response | None:
+    """Return a hangup Response if the call should be rejected; None if it may proceed."""
+    from agent.cost_tracker import (
+        get_daily_total, is_rate_limited, record_call, reset_if_new_day,
+    )
+    reset_if_new_day()
+    daily = get_daily_total()
+    if daily >= settings.daily_cost_limit_usd:
+        logger.warning(
+            "Daily cost cap $%.2f exceeded (current $%.4f) — rejecting call from %s",
+            settings.daily_cost_limit_usd, daily, from_number,
+        )
+        return Response(content=_HANGUP_XML, media_type="text/xml")
+
+    if from_number and is_rate_limited(from_number, settings.rate_limit_calls_per_hour):
+        logger.warning(
+            "Rate limit %d calls/hour exceeded — rejecting call from %s",
+            settings.rate_limit_calls_per_hour, from_number,
+        )
+        return Response(content=_HANGUP_XML, media_type="text/xml")
+
+    if from_number:
+        record_call(from_number)
+    return None
+
+
 @app.post("/incoming-call", response_class=Response)
 async def incoming_call_post(request: Request) -> Response:
     logger.info("t_incoming_call=%.6f", time.perf_counter())
+    from_number = ""
+    try:
+        form = await request.form()
+        from_number = str(form.get("From", ""))
+    except Exception:
+        pass
+    blocked = _check_call_allowed(from_number)
+    if blocked is not None:
+        return blocked
     return _build_xml(request)
 
 
 @app.get("/incoming-call", response_class=Response)
 async def incoming_call_get(request: Request) -> Response:
     logger.info("t_incoming_call=%.6f", time.perf_counter())
+    from_number = request.query_params.get("From", "")
+    blocked = _check_call_allowed(from_number)
+    if blocked is not None:
+        return blocked
     return _build_xml(request)
 
 
@@ -300,7 +369,88 @@ async def api_stats() -> JSONResponse:
 
 @app.get("/api/calls")
 async def api_calls() -> JSONResponse:
-    return JSONResponse({"calls": state.get_all()})
+    calls = state.get_all()
+    rec_dir = Path(settings.recording_dir) if settings.recording_dir else None
+    for c in calls:
+        c["cost_inr"] = 0.0
+        cid = c.get("call_id")
+        if cid and rec_dir:
+            try:
+                rec_file = rec_dir / f"{cid}.json"
+                if rec_file.exists():
+                    doc = json.loads(rec_file.read_text(encoding="utf-8"))
+                    total_usd = float(
+                        doc.get("metrics", {}).get("cost_breakdown", {}).get("total_usd", 0.0)
+                    )
+                    c["cost_inr"] = round(total_usd * settings.usd_to_inr, 2)
+            except Exception:
+                pass
+    return JSONResponse({"calls": calls})
+
+
+@app.get("/api/cost-summary")
+async def api_cost_summary() -> JSONResponse:
+    """Daily cost summary and rate-limit config. Gated by DEBUG_MODE."""
+    if not settings.debug_mode:
+        return JSONResponse(
+            {"error": "disabled — set DEBUG_MODE=true in .env to enable"},
+            status_code=403,
+        )
+    from agent.cost_tracker import get_daily_total, reset_if_new_day
+    reset_if_new_day()
+    daily = get_daily_total()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return JSONResponse({
+        "date":                      today,
+        "daily_total_usd":           round(daily, 4),
+        "daily_limit_usd":           settings.daily_cost_limit_usd,
+        "headroom_usd":              round(max(0.0, settings.daily_cost_limit_usd - daily), 4),
+        "rate_limit_calls_per_hour": settings.rate_limit_calls_per_hour,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Prompt editor API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/prompt")
+async def get_prompt() -> JSONResponse:
+    """Return the current system prompt content."""
+    path = Path(settings.system_prompt_path)
+    if not path.exists():
+        return JSONResponse({"content": "", "char_count": 0})
+    content = path.read_text(encoding="utf-8")
+    return JSONResponse({"content": content, "char_count": len(content)})
+
+
+@app.post("/api/prompt")
+async def update_prompt(payload: dict) -> JSONResponse:
+    """Overwrite system_prompt.txt. Validates length. Next call hot-reloads."""
+    content = payload.get("content", "")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+    if len(content) > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Prompt too long ({len(content)} chars). Max 10000.",
+        )
+    Path(settings.system_prompt_path).write_text(content, encoding="utf-8")
+    return JSONResponse({
+        "ok": True,
+        "char_count": len(content),
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.post("/api/prompt/reset")
+async def reset_prompt() -> JSONResponse:
+    """Restore system_prompt.txt from system_prompt.default.txt."""
+    default_path = Path(settings.system_prompt_path).with_name("system_prompt.default.txt")
+    if not default_path.exists():
+        raise HTTPException(status_code=404, detail="Default prompt backup not found")
+    content = default_path.read_text(encoding="utf-8")
+    Path(settings.system_prompt_path).write_text(content, encoding="utf-8")
+    return JSONResponse({"ok": True, "char_count": len(content)})
 
 
 # ---------------------------------------------------------------------------

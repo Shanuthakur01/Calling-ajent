@@ -62,6 +62,7 @@ class CallRecorder:
         self._errors:     List[str] = []
         self._queue:      asyncio.Queue = asyncio.Queue()
         self._task:       Optional[asyncio.Task] = None
+        self._final_doc:  Optional[dict] = None
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -165,6 +166,8 @@ class CallRecorder:
             "metrics":    metrics or {},
             "errors":     list(self._errors),
         }
+        if end_reason is not None:
+            self._final_doc = doc
         try:
             self._json_path.parent.mkdir(parents=True, exist_ok=True)
             self._json_path.write_text(

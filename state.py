@@ -35,6 +35,7 @@ def answer(request_uuid: str, call_uuid: str) -> None:
 def activate(call_id: str) -> None:
     """Called when WebSocket START event fires."""
     if call_id in _calls:
+        _calls[call_id]["call_id"]     = call_id   # link outbound entry to recording filename
         _calls[call_id]["status"]      = "active"
         _calls[call_id]["answered_at"] = time.time()
     else:

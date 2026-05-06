@@ -236,16 +236,19 @@ class LLMClient:
         model: str,
         messages: List[Dict],
         on_first_token: Optional[Callable[[], None]] = None,
+        on_usage: Optional[Callable[[int, int], None]] = None,
     ) -> AsyncIterator[str]:
         """
         Yield complete sentences from one provider.
         Raises APIError (or subclass) on any failure — before or during streaming.
         on_first_token: called once with no args when the first non-empty token arrives.
+        on_usage: called once with (prompt_tokens, completion_tokens) from the usage chunk.
         """
         stream = await client.chat.completions.create(
             model=model,
             messages=messages,
             stream=True,
+            stream_options={"include_usage": True},
             max_tokens=150,
             temperature=0.8,
         )
@@ -253,6 +256,11 @@ class LLMClient:
         buf  = ""
         _first_token_fired = False
         async for chunk in stream:
+            # Final usage-only chunk has empty choices list
+            if not chunk.choices:
+                if on_usage is not None and chunk.usage is not None:
+                    on_usage(chunk.usage.prompt_tokens, chunk.usage.completion_tokens)
+                continue
             delta = chunk.choices[0].delta.content or ""
             if delta and not _first_token_fired:
                 _first_token_fired = True
@@ -295,6 +303,15 @@ class LLMClient:
         fallback = self._fallback_name
         use_primary = not self._primary_cb.should_skip()
 
+        def _usage_cb(provider: str):
+            if call_metrics is None:
+                return None
+            def _cb(in_tok: int, out_tok: int) -> None:
+                call_metrics.llm_input_tokens  += in_tok
+                call_metrics.llm_output_tokens += out_tok
+                call_metrics.llm_provider_used  = provider
+            return _cb
+
         # ── Primary provider ──────────────────────────────────────────────
         if use_primary:
             yielded = False
@@ -303,6 +320,7 @@ class LLMClient:
                 async for sentence in self._stream_provider(
                     self._primary, settings.llm_primary_model, messages,
                     on_first_token=on_first_token,
+                    on_usage=_usage_cb(primary),
                 ):
                     if not yielded:
                         yielded = True
@@ -362,6 +380,7 @@ class LLMClient:
             async for sentence in self._stream_provider(
                 self._fallback, settings.llm_fallback_model, messages,
                 on_first_token=on_first_token,
+                on_usage=_usage_cb(fallback),
             ):
                 if not yielded:
                     yielded = True

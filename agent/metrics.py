@@ -75,10 +75,58 @@ class CallMetrics:
     speculative_misses: int = 0
     speculative_savings_ms: float = 0.0
 
+    # Phase 8 — Cost tracking counters
+    stt_seconds: float = 0.0            # total audio forwarded to Deepgram STT
+    llm_input_tokens: int = 0           # total input tokens across all turns
+    llm_output_tokens: int = 0          # total output tokens across all turns
+    llm_provider_used: str = ""         # last provider that completed ("openai"|"groq")
+    tts_chars_elevenlabs: int = 0       # chars synthesised via ElevenLabs
+    tts_chars_deepgram: int = 0         # chars synthesised via Deepgram TTS
+    plivo_seconds: float = 0.0          # total call duration (set at close)
+    call_start_wall: float = 0.0        # time.time() at call start
+
     @property
     def speculative_hit_rate(self) -> float:
         total = self.speculative_hits + self.speculative_misses
         return self.speculative_hits / total if total > 0 else 0.0
+
+    def compute_cost_usd(self) -> dict:
+        """Compute per-component cost in USD using COST_RATES from config."""
+        from config import COST_RATES
+
+        stt = self.stt_seconds / 60.0 * COST_RATES["deepgram_stt_per_min"]
+
+        provider    = self.llm_provider_used or "openai"
+        llm_in_key  = f"{provider}_input_per_1k_tokens"
+        llm_out_key = f"{provider}_output_per_1k_tokens"
+        llm_in  = self.llm_input_tokens  / 1000.0 * COST_RATES.get(llm_in_key, 0.0)
+        llm_out = self.llm_output_tokens / 1000.0 * COST_RATES.get(llm_out_key, 0.0)
+
+        el_tts = self.tts_chars_elevenlabs / 1000.0 * COST_RATES["elevenlabs_per_1k_chars"]
+        dg_tts = self.tts_chars_deepgram   / 1000.0 * COST_RATES["deepgram_tts_per_1k_chars"]
+        plivo  = self.plivo_seconds / 60.0 * COST_RATES["plivo_per_min"]
+
+        total = stt + llm_in + llm_out + el_tts + dg_tts + plivo
+        return {
+            "total_usd":            round(total, 6),
+            "stt_usd":              round(stt, 6),
+            # Aggregated keys used by COST log line and acceptance tests
+            "llm_usd":              round(llm_in + llm_out, 6),
+            "tts_usd":              round(el_tts + dg_tts, 6),
+            "plivo_usd":            round(plivo, 6),
+            # Detailed breakdown
+            "llm_input_usd":        round(llm_in, 6),
+            "llm_output_usd":       round(llm_out, 6),
+            "tts_elevenlabs_usd":   round(el_tts, 6),
+            "tts_deepgram_usd":     round(dg_tts, 6),
+            "llm_provider":         provider,
+            "stt_seconds":          round(self.stt_seconds, 2),
+            "llm_input_tokens":     self.llm_input_tokens,
+            "llm_output_tokens":    self.llm_output_tokens,
+            "tts_chars_elevenlabs": self.tts_chars_elevenlabs,
+            "tts_chars_deepgram":   self.tts_chars_deepgram,
+            "plivo_seconds":        round(self.plivo_seconds, 2),
+        }
 
     def add(self, m: TurnMetrics) -> None:
         self.turns.append(m)
